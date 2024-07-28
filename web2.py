@@ -3,13 +3,16 @@ import numpy as np
 import mediapipe as mp
 import tensorflow as tf
 from collections import deque
-from playsound import playsound
 import streamlit as st
 from streamlit_webrtc import VideoTransformerBase, webrtc_streamer
 import tempfile
 
-# Load the alarm sound file
-alarm_sound_file = 'test1.mp3'
+# Fungsi untuk memutar suara peringatan
+def play_alarm():
+    audio_file_path = 'test1.wav'  # Sesuaikan dengan jalur file audio Anda
+    audio_file = open(audio_file_path, 'rb')
+    audio_bytes = audio_file.read()
+    st.audio(audio_bytes, format='audio/wav')
 
 # Load the TFLite model
 interpreter = tf.lite.Interpreter(model_path='model.tflite')
@@ -53,6 +56,7 @@ class VideoTransformer(VideoTransformerBase):
     def __init__(self):
         self.drowsy_counter = 0
         self.predictions_queue = deque(maxlen=drowsy_frames_threshold)
+        self.alarm_playing = False
 
     def transform(self, frame):
         img = frame.to_ndarray(format="bgr24")
@@ -79,7 +83,7 @@ class VideoTransformer(VideoTransformerBase):
             if self.drowsy_counter >= drowsy_frames_threshold:
                 cv2.putText(img, "Drowsy Detected!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
                 if not self.alarm_playing:
-                    playsound(alarm_sound_file, block=False)
+                    play_alarm()
                     self.alarm_playing = True
         else:
             self.drowsy_counter = 0
@@ -117,7 +121,7 @@ class VideoTransformer(VideoTransformerBase):
                 drowsiness_accuracy = (1 - average_prediction) * 100
                 cv2.putText(img, f"Drowsy Detected! ({drowsiness_accuracy:.2f}%)", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
                 if not self.alarm_playing:
-                    playsound(alarm_sound_file, block=False)
+                    play_alarm()
                     self.alarm_playing = True
             elif not eyes_closed and mouth_open:
                 yawn_accuracy = average_prediction * 100
