@@ -4,15 +4,8 @@ import mediapipe as mp
 import tensorflow as tf
 from collections import deque
 import streamlit as st
-from streamlit_webrtc import VideoTransformerBase, webrtc_streamer
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 import tempfile
-
-# Fungsi untuk memutar suara peringatan
-def play_alarm():
-    audio_file_path = 'test1.wav'  # Sesuaikan dengan jalur file audio Anda
-    audio_file = open(audio_file_path, 'rb')
-    audio_bytes = audio_file.read()
-    st.audio(audio_bytes, format='audio/wav')
 
 # Load the TFLite model
 interpreter = tf.lite.Interpreter(model_path='model.tflite')
@@ -52,13 +45,12 @@ def is_mouth_open(landmarks, threshold=0.05):
     distance = lower_lip - upper_lip
     return distance > threshold
 
-class VideoTransformer(VideoTransformerBase):
+class VideoProcessor(VideoProcessorBase):
     def __init__(self):
         self.drowsy_counter = 0
         self.predictions_queue = deque(maxlen=drowsy_frames_threshold)
-        self.alarm_playing = False
 
-    def transform(self, frame):
+    def recv(self, frame):
         img = frame.to_ndarray(format="bgr24")
 
         # Convert BGR to HSV
@@ -82,12 +74,9 @@ class VideoTransformer(VideoTransformerBase):
             self.drowsy_counter += 1
             if self.drowsy_counter >= drowsy_frames_threshold:
                 cv2.putText(img, "Drowsy Detected!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
-                if not self.alarm_playing:
-                    play_alarm()
-                    self.alarm_playing = True
+                st.audio('test1.wav')
         else:
             self.drowsy_counter = 0
-            self.alarm_playing = False
             for (x, y, w, h) in eyes:
                 eye = img[y:y+h, x:x+w]
                 eye_preprocessed = preprocess_eye(eye)
@@ -120,9 +109,7 @@ class VideoTransformer(VideoTransformerBase):
             if average_prediction < drowsy_threshold and eyes_closed and not mouth_open:
                 drowsiness_accuracy = (1 - average_prediction) * 100
                 cv2.putText(img, f"Drowsy Detected! ({drowsiness_accuracy:.2f}%)", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
-                if not self.alarm_playing:
-                    play_alarm()
-                    self.alarm_playing = True
+                st.audio('test1.wav')
             elif not eyes_closed and mouth_open:
                 yawn_accuracy = average_prediction * 100
                 cv2.putText(img, f"Yawn Detected! ({yawn_accuracy:.2f}%)", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
@@ -182,24 +169,6 @@ if uploaded_file is not None:
         # Process the uploaded image
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         eyes = eye_cascade.detectMultiScale(gray, 1.3, 5)
-        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-        
-        for (x, y, w, h) in eyes:
-            cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
-        for (x, y, w, h) in faces:
-            cv2.rectangle(img, (x, y), (x+w, y+h), (255, 0, 0), 2)
-        
-        st.image(img, caption='Processed Image (HSV)', use_column_width=True)
-    elif uploaded_file.type == "video/mp4":
-        # Save the uploaded video to a temporary file
-        tfile = tempfile.NamedTemporaryFile(delete=False)
-        tfile.write(uploaded_file.read())
 
-        # Display the uploaded video
-        st.video(tfile.name)
-
-# Video stream with drowsiness detection
-webrtc_streamer(key="drowsiness-detection", video_transformer_factory=VideoTransformer)
-
-# Add a footer
-st.markdown('<div class="footer">MUHAMAD SURHES ANGGRHESTA</div>', unsafe_allow_html=True)
+# Start the video stream
+webrtc_streamer(key="example", video_processor_factory=VideoProcessor)
