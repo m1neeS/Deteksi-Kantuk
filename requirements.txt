@@ -1,7 +1,7 @@
 opencv-python-headless
 numpy
+playsound
 mediapipe
 tensorflow
-pygame
 streamlit
 streamlit-webrtc
