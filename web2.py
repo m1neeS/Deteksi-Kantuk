@@ -13,7 +13,7 @@ pygame.init()
 pygame.mixer.init()
 
 # Load the alarm sound
-alarm_sound = pygame.mixer.Sound('test1.mp3')
+alarm_sound = pygame.mixer.Sound('test1.wav')  # Ganti dengan file .wav
 
 # Load the TFLite model
 interpreter = tf.lite.Interpreter(model_path='model.tflite')
