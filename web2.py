@@ -13,7 +13,7 @@ pygame.init()
 pygame.mixer.init()
 
 # Load the alarm sound
-alarm_sound = pygame.mixer.Sound('test1.wav')  # Ganti dengan file .wav
+alarm_sound = pygame.mixer.Sound('test1.mp3')
 
 # Load the TFLite model
 interpreter = tf.lite.Interpreter(model_path='model.tflite')
@@ -60,9 +60,6 @@ class VideoTransformer(VideoTransformerBase):
 
     def transform(self, frame):
         img = frame.to_ndarray(format="bgr24")
-
-        # Convert BGR to HSV
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         eyes = eye_cascade.detectMultiScale(gray, 1.3, 5)
@@ -162,7 +159,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Add header
-st.markdown('<div class="title">Real-Time Drowsiness Detection</div>', unsafe_allow_html=True)
+st.markdown('<div class="title">Real-Time Drowsiness and Yawn Detection</div>', unsafe_allow_html=True)
+st.write("Tekan 'q' untuk keluar dari video stream.")
 
 # Add a sidebar for file uploads
 st.sidebar.title("Upload Options")
@@ -173,30 +171,109 @@ if uploaded_file is not None:
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     if uploaded_file.type.startswith("image"):
         img = cv2.imdecode(file_bytes, 1)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        st.image(img, caption='Uploaded Image (HSV)', use_column_width=True)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        st.image(img, caption='Uploaded Image', use_column_width=True)
 
         # Process the uploaded image
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         eyes = eye_cascade.detectMultiScale(gray, 1.3, 5)
         faces = face_cascade.detectMultiScale(gray, 1.3, 5)
         
-        for (x, y, w, h) in eyes:
-            cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
-        for (x, y, w, h) in faces:
-            cv2.rectangle(img, (x, y), (x+w, y+h), (255, 0, 0), 2)
+        rgb_frame = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        results = face_mesh.process(rgb_frame)
         
-        st.image(img, caption='Processed Image (HSV)', use_column_width=True)
-    elif uploaded_file.type == "video/mp4":
-        # Save the uploaded video to a temporary file
-        tfile = tempfile.NamedTemporaryFile(delete=False)
-        tfile.write(uploaded_file.read())
+        mouth_open = False
+        if results.multi_face_landmarks:
+            for face_landmarks in results.multi_face_landmarks:
+                mouth_open = is_mouth_open(face_landmarks.landmark)
+        
+        eyes_closed = len(eyes) == 0
+        if eyes_closed:
+            cv2.putText(img, "Drowsy Detected!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+        else:
+            for (x, y, w, h) in eyes:
+                eye = img[y:y+h, x:x+w]
+                eye_preprocessed = preprocess_eye(eye)
+                
+                interpreter.set_tensor(input_details[0]['index'], eye_preprocessed)
+                interpreter.invoke()
+                prediction = interpreter.get_tensor(output_details[0]['index'])[0][0]
+                predictions_queue.append(prediction)
+                
+                average_prediction = np.mean(predictions_queue) if len(predictions_queue) > 0 else 0
+                
+                if average_prediction >= drowsy_threshold:
+                    status_text = f"Open Eyes: {average_prediction * 100:.2f}%"
+                    cv2.putText(img, status_text, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+                else:
+                    status_text = f"Closed Eyes: {(1 - average_prediction) * 100:.2f}%"
+                    cv2.putText(img, status_text, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
-        # Display the uploaded video
-        st.video(tfile.name)
+        if mouth_open:
+            cv2.putText(img, "Mouth Open", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
+        else:
+            cv2.putText(img, "Mouth Closed", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
 
-# Video stream with drowsiness detection
-webrtc_streamer(key="drowsiness-detection", video_transformer_factory=VideoTransformer)
+        st.image(img, caption='Processed Image', use_column_width=True)
 
-# Add a footer
-st.markdown('<div class="footer">MUHAMAD SURHES ANGGRHESTA</div>', unsafe_allow_html=True)
+    # Handle video upload
+    elif uploaded_file.type.startswith("video"):
+        tfile = tempfile.NamedTemporaryFile(delete=False) 
+        tfile.write(file_bytes)
+        cap = cv2.VideoCapture(tfile.name)
+
+        stframe = st.empty()
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            eyes = eye_cascade.detectMultiScale(gray, 1.3, 5)
+            faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+
+            # Process face landmarks
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = face_mesh.process(rgb_frame)
+
+            mouth_open = False
+            if results.multi_face_landmarks:
+                for face_landmarks in results.multi_face_landmarks:
+                    mouth_open = is_mouth_open(face_landmarks.landmark)
+
+            eyes_closed = len(eyes) == 0
+            if eyes_closed:
+                cv2.putText(frame, "Drowsy Detected!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+            else:
+                for (x, y, w, h) in eyes:
+                    eye = frame[y:y+h, x:x+w]
+                    eye_preprocessed = preprocess_eye(eye)
+
+                    interpreter.set_tensor(input_details[0]['index'], eye_preprocessed)
+                    interpreter.invoke()
+                    prediction = interpreter.get_tensor(output_details[0]['index'])[0][0]
+                    predictions_queue.append(prediction)
+
+                    average_prediction = np.mean(predictions_queue) if len(predictions_queue) > 0 else 0
+
+                    if average_prediction >= drowsy_threshold:
+                        status_text = f"Open Eyes: {average_prediction * 100:.2f}%"
+                        cv2.putText(frame, status_text, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+                    else:
+                        status_text = f"Closed Eyes: {(1 - average_prediction) * 100:.2f}%"
+                        cv2.putText(frame, status_text, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+
+            if mouth_open:
+                cv2.putText(frame, "Mouth Open", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
+            else:
+                cv2.putText(frame, "Mouth Closed", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+
+            stframe.image(frame, caption='Processed Video Frame', use_column_width=True)
+
+        cap.release()
+
+# WebRTC streamer for real-time detection
+webrtc_streamer(key="example", video_transformer_factory=VideoTransformer)
+
+# Add footer
+st.markdown('<div class="footer">© 2024 Real-Time Drowsiness and Yawn Detection</div>', unsafe_allow_html=True)
