@@ -1,0 +1,7 @@
+opencv-python-headless
+numpy
+mediapipe
+tensorflow
+pygame
+streamlit
+streamlit-webrtc
